@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+# Never publish credential files, exports, private backups, or local databases.
+*.json
+*.jsonl
+*.sqlite*
+auth-profiles/
+auth-backups/
+auth-switch.registry
+*.bak*
+.env*
