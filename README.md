@@ -7,7 +7,7 @@ Python 3.11+，仅使用标准库。认证管理支持 Linux / macOS；会话进
 ## 安装
 
 ```bash
-git clone <你的仓库地址> codex-auth
+git clone https://github.com/xqy-2025/codex-auth.git
 cd codex-auth
 python3 install.py
 codex-auth
