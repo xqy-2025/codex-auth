@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 import re
 import signal
+import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -342,7 +344,11 @@ class Store:
             self.backup()
             write_json(self.auth, target)
             atomic_text(self.marker, name + "\n")
-        print(f"已切换至 {name}。已打开的 Codex 客户端可能需要重新加载才能使用新账号。")
+        print(f"已切换至 {name}。")
+        if (self.profiles / ".restart-vscode").is_file():
+            restart_vscode(self)
+        else:
+            print("已打开的 Codex 客户端可能需要重新加载才能使用新账号。")
 
     def save(self, name, auth, update=False):
         with self.locked():
@@ -362,6 +368,8 @@ class Store:
                 atomic_text(self.marker, name + "\n")
         print(f"已{'更新' if update else '保存'}账号：{name}" +
               ("（当前 auth.json 已同步）" if update and active == name else ""))
+        if update and active == name and (self.profiles / ".restart-vscode").is_file():
+            restart_vscode(self)
 
     def remove(self, name):
         with self.locked():
@@ -403,6 +411,64 @@ class Store:
                     write_json(self.path(name), auth)
             self.sync()
         print(f"已迁移 {len(pending)} 个账号，旧登记表和旧文件已保留。")
+
+
+def bridge_request(path, request):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+        conn.settimeout(1)
+        conn.connect(str(path))
+        conn.sendall((request + "\n").encode("ascii"))
+        return conn.recv(100).decode("ascii", errors="replace").strip()
+
+
+def restart_vscode(store):
+    """Ask a single live VS Code bridge to restart its extension host."""
+    directory = store.home / "codex-auth-vscode"
+    try:
+        st = directory.lstat()
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+            raise OSError("unsafe bridge directory")
+        candidates = []
+        for path in directory.glob("*.sock"):
+            try:
+                st = path.lstat()
+                if not stat.S_ISSOCK(st.st_mode) or st.st_uid != os.getuid():
+                    continue
+                if bridge_request(path, "ping") == "pong":
+                    candidates.append(path)
+            except OSError:
+                continue
+        if len(candidates) != 1:
+            if len(candidates) > 1:
+                print("检测到多个 VS Code 窗口，为避免重启错误窗口，请在目标窗口手动运行“开发人员: 重启扩展主机”。", file=sys.stderr)
+            else:
+                print("未检测到运行中的 VS Code 桥接扩展，请在目标窗口手动运行“开发人员: 重启扩展主机”。", file=sys.stderr)
+            return False
+        if bridge_request(candidates[0], "restart") != "accepted":
+            raise OSError("restart request rejected")
+        print("已请求 VS Code 重启扩展宿主；其他扩展也会短暂重启，正在运行的 Codex 对话会中断。")
+        return True
+    except OSError:
+        print("无法连接 VS Code 桥接扩展，请在目标窗口手动运行“开发人员: 重启扩展主机”。", file=sys.stderr)
+        return False
+
+
+def configure_vscode(store, action):
+    if action == "restart":
+        if not restart_vscode(store):
+            raise AuthError("未能请求重启扩展宿主。")
+        return
+    if action == "status":
+        enabled = (store.profiles / ".restart-vscode").is_file()
+        print(f"切换后自动重启 VS Code 扩展宿主：{'已启用' if enabled else '未启用'}。")
+        return
+    with store.locked():
+        marker = store.profiles / ".restart-vscode"
+        if action == "enable":
+            atomic_text(marker, "enabled\n")
+        elif marker.exists() or marker.is_symlink():
+            marker.unlink()
+    print("已启用切换后自动重启 VS Code 扩展宿主。" if action == "enable" else "已关闭自动重启。")
 
 
 def process_info(pid, proc=Path("/proc")):
@@ -598,6 +664,8 @@ def parser():
     commands.add_parser("list", aliases=["ls"], help="列出账号，* 表示当前账号")
     commands.add_parser("migrate", help="导入旧版 auth-switch.registry，保留旧文件")
     commands.add_parser("self-update", help="通过 git pull --ff-only 更新命令")
+    sub = commands.add_parser("vscode", help="管理账号切换后的 VS Code 扩展宿主重启")
+    sub.add_argument("action", choices=["enable", "disable", "status", "restart"])
     sub = commands.add_parser("unlock", help="检查并释放被 Codex 进程占用的对话锁（Linux）")
     sub.add_argument("--all", action="store_true", help="选择所有可结束的占用进程")
     sub.add_argument("--dry-run", action="store_true", help="仅查看，不结束进程")
@@ -616,7 +684,7 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     # Preserve original `codex-auth NAME` and `codex-auth NAME PATH` shortcuts.
     known = {"add", "update", "switch", "use", "remove", "rm", "list", "ls", "migrate",
-             "self-update", "unlock", "help"}
+             "self-update", "unlock", "vscode", "help"}
     prefix = []
     if argv[:1] == ["--home"] and len(argv) >= 2:
         prefix, argv = argv[:2], argv[2:]
@@ -659,6 +727,8 @@ def main(argv=None):
         unlock(store, args)
     elif args.command == "self-update":
         self_update()
+    elif args.command == "vscode":
+        configure_vscode(store, args.action)
     return 0
 
 

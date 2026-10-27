@@ -35,6 +35,7 @@ codex-auth update 工作账号      # 更新指定账号；当前账号会同步
 codex-auth remove 工作账号      # 移除保存的账号，保留当前 auth.json
 codex-auth migrate             # 手动迁移旧登记表
 codex-auth self-update         # 从已配置的 Git 上游更新本工具
+codex-auth vscode status       # 查看自动重启 VS Code 扩展宿主是否启用
 codex-auth --help
 ```
 
@@ -94,7 +95,28 @@ codex-auth unlock --all --yes   # 明确允许中断所选进程，供脚本使�
     auth-时间戳.json             覆盖当前凭据前的备份
 ```
 
-私有目录权限为 `700`，认证文件和备份为 `600`，写入使用同目录临时文件及原子替换。备份只保存在本机，不自动清理，需按自己的恢复需求管理。切换不会终止客户端；已打开的 Codex 可能仍缓存旧身份，需要重新加载客户端。
+私有目录权限为 `700`，认证文件和备份为 `600`，写入使用同目录临时文件及原子替换。备份只保存在本机，不自动清理，需按自己的恢复需求管理。已打开的 Codex 可能仍缓存旧身份，需要重新加载客户端。
+
+## VS Code 账号切换后自动重启扩展
+
+本工具提供一个本地桥接扩展，通过 VS Code 的 `Developer: Restart Extension Host` 命令重启扩展宿主，无需关闭 VS Code。扩展宿主中的其他扩展也会重新启动，正在运行的 Codex 对话会中断；请在它们空闲时切换。这个桥接扩展不会读取或传递账号令牌。
+
+在目标 VS Code 的终端（远程 SSH 环境要使用远程终端）中安装并启用：
+
+```bash
+python3 vscode-bridge/install.py
+codex-auth vscode enable
+```
+
+安装扩展后，如果 VS Code 没有自动加载它，请先在命令面板执行一次 `Developer: Restart Extension Host`（中文界面搜索“重启扩展主机”）。以后 `codex-auth switch` 或更新当前账号后，会尝试自动通知扩展宿主重启。桥接扩展通过 Codex 数据目录下仅当前用户可访问的 Unix 套接字接收请求，支持 Linux 和 macOS。
+
+```bash
+codex-auth vscode status       # 查看是否启用
+codex-auth vscode restart      # 手动请求重启扩展宿主
+codex-auth vscode disable      # 关闭自动重启
+```
+
+找不到桥接扩展、检测到多个 VS Code 窗口或请求失败时，账号仍会切换，并提示手动重启；不会尝试结束进程。如果有多个 VS Code 窗口连接同一 Codex 数据目录，为避免重启错误窗口，自动重启会暂停。桥接扩展使用 VS Code 自带命令，不保证所有扩展或远程连接恢复完成，检查 Codex 侧栏中的账号即可确认。
 
 本工具适用于文件凭据存储。若配置了 `keyring`、`auto` 或 `ephemeral`，请先在 `~/.codex/config.toml` 顶层设置：
 
@@ -117,7 +139,7 @@ python3 -m unittest discover -s tests -v
 # 首次使用 Git 时，在当前仓库设置自己的提交身份：
 git config user.name "你的名字"
 git config user.email "你的 GitHub 邮箱或 noreply 邮箱"
-git add README.md LICENSE .gitignore .github codex_auth.py install.py bin tests
+git add README.md LICENSE .gitignore .github codex_auth.py install.py bin tests vscode-bridge
 git commit -m "Add interactive Codex account manager"
 git remote add origin <你的仓库地址>
 git push -u origin main

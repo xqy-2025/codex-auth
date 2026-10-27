@@ -1,0 +1,12 @@
+{
+  "name": "codex-auth-bridge",
+  "displayName": "Codex Auth VS Code Bridge",
+  "description": "Restart the extension host after codex-auth switches accounts.",
+  "version": "1.0.0",
+  "publisher": "codex-auth-local",
+  "engines": { "vscode": "^1.88.0" },
+  "categories": ["Other"],
+  "extensionKind": ["workspace"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js"
+}

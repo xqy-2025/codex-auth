@@ -7,6 +7,7 @@ build/
 *.egg-info/
 # Never publish credential files, exports, private backups, or local databases.
 *.json
+!vscode-bridge/package.json
 *.jsonl
 *.sqlite*
 auth-profiles/
